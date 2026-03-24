@@ -27,7 +27,13 @@ class Backtester:
         self.equity_curve = []  # untuk drawdown tracking
 
     def load_data(self):
-        self.df = DataCollector.get_price_data(self.symbol, period="3mo", interval="1d")
+        self.df = DataCollector.get_price_data(
+            self.symbol,
+            period="3mo",
+            interval="1d",
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
         if self.df.empty:
             raise ValueError("No data retrieved")
         self.df = self.df[(self.df.index >= self.start_date) & (self.df.index <= self.end_date)]

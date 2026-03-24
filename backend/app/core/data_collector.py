@@ -74,11 +74,23 @@ class DataSourceManager:
             return await self._fetch_alpha_vantage(symbol, **kwargs)
         return None
     
-    async def _fetch_yfinance(self, symbol: str, period: str = "3mo", interval: str = "1d"):
+    async def _fetch_yfinance(
+        self,
+        symbol: str,
+        period: str = "3mo",
+        interval: str = "1d",
+        start_date=None,
+        end_date=None
+    ):
         loop = asyncio.get_running_loop()
+        def _history():
+            ticker = yf.Ticker(symbol)
+            if start_date is not None or end_date is not None:
+                return ticker.history(start=start_date, end=end_date, interval=interval)
+            return ticker.history(period=period, interval=interval)
         df = await loop.run_in_executor(
             self.executor,
-            lambda: yf.Ticker(symbol).history(period=period, interval=interval)
+            _history
         )
         return df
     
@@ -91,10 +103,18 @@ class DataSourceManager:
         # Implement actual Alpha Vantage API call when key is available.
         return pd.DataFrame()
 
-    async def get_price_data(self, symbol: str, period: str = "3mo", interval: str = "1d", use_cache=True):
+    async def get_price_data(
+        self,
+        symbol: str,
+        period: str = "3mo",
+        interval: str = "1d",
+        use_cache=True,
+        start_date=None,
+        end_date=None
+    ):
         """Get price data dengan multi-source dan caching"""
         try:
-            cache_key = self.cache.generate_key('price', symbol, period, interval)
+            cache_key = self.cache.generate_key('price', symbol, period, interval, start_date, end_date)
         except Exception as e:
             logger.warning(f"Cache key generation failed for {symbol}: {e}")
             cache_key = None
@@ -116,7 +136,14 @@ class DataSourceManager:
         try:
             for source in sorted(self.SOURCES.keys(), key=lambda x: self.SOURCES[x]['priority']):
                 try:
-                    df = await self.fetch_from_source(source, symbol, period=period, interval=interval)
+                    df = await self.fetch_from_source(
+                        source,
+                        symbol,
+                        period=period,
+                        interval=interval,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
                     if df is not None and not df.empty:
                         # Cache hasil
                         if cache_key:
@@ -139,9 +166,25 @@ class DataSourceManager:
 class DataCollector:
     """Backward-compatible sync wrapper for data collection."""
     @staticmethod
-    def get_price_data(symbol: str, period: str = "3mo", interval: str = "1d", use_cache=True):
+    def get_price_data(
+        symbol: str,
+        period: str = "3mo",
+        interval: str = "1d",
+        use_cache=True,
+        start_date=None,
+        end_date=None
+    ):
         manager = DataSourceManager()
-        return asyncio.run(manager.get_price_data(symbol, period=period, interval=interval, use_cache=use_cache))
+        return asyncio.run(
+            manager.get_price_data(
+                symbol,
+                period=period,
+                interval=interval,
+                use_cache=use_cache,
+                start_date=start_date,
+                end_date=end_date
+            )
+        )
 
 
 class NewsScraperV5:

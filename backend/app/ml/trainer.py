@@ -46,8 +46,16 @@ class ModelTrainer:
     def prepare_data(self):
         all_features = []
         all_labels = []
+        feature_cols = ['returns', 'rsi', 'macd', 'macd_signal', 'bb_upper', 'bb_lower', 'sentiment']
+        scaler = None
         for symbol in self.symbol_list:
-            df = DataCollector.get_price_data(symbol, period="3mo", interval="1d")
+            df = DataCollector.get_price_data(
+                symbol,
+                period="3mo",
+                interval="1d",
+                start_date=self.start_date,
+                end_date=self.end_date
+            )
             if df.empty:
                 continue
             if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
@@ -77,7 +85,6 @@ class ModelTrainer:
 
             df.dropna(inplace=True)
 
-            feature_cols = ['returns', 'rsi', 'macd', 'macd_signal', 'bb_upper', 'bb_lower', 'sentiment']
             # Normalisasi per fitur
             scaler = StandardScaler()
             features_scaled = scaler.fit_transform(df[feature_cols])
@@ -87,6 +94,10 @@ class ModelTrainer:
             all_labels.extend(labels)
 
         # Simpan scaler dan feature_cols untuk digunakan nanti
+        if scaler is None:
+            self.scaler = StandardScaler()
+            self.feature_cols = feature_cols
+            return np.array(all_features), np.array(all_labels)
         self.scaler = scaler
         self.feature_cols = feature_cols
         return np.array(all_features), np.array(all_labels)
