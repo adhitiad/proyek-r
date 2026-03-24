@@ -1,0 +1,23 @@
+fastapi
+uvicorn
+pymongo
+yfinance
+pandas
+numpy
+scikit-learn
+torch
+transformers
+beautifulsoup4
+requests
+python-dotenv
+pandas_ta
+groq               # Jika menggunakan Groq API
+apscheduler
+websockets
+python-telegram-bot
+joblib
+streamlit
+plotly
+redis
+aiohttp
+backoff
