@@ -161,6 +161,12 @@ class ModelTrainer:
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat()
         }
-        db.model_metadata.insert_one(metadata)
+        # Insert into DB without mutating the response payload
+        db_doc = metadata.copy()
+        result = db.model_metadata.insert_one(db_doc)
 
-        return metadata, accuracy
+        response_metadata = metadata.copy()
+        response_metadata["timestamp"] = response_metadata["timestamp"].isoformat()
+        response_metadata["_id"] = str(result.inserted_id)
+
+        return response_metadata, accuracy

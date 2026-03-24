@@ -114,7 +114,9 @@ class DataSourceManager:
     ):
         """Get price data dengan multi-source dan caching"""
         try:
-            cache_key = self.cache.generate_key('price', symbol, period, interval, start_date, end_date)
+            start_key = start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
+            end_key = end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
+            cache_key = self.cache.generate_key('price', symbol, period, interval, start_key, end_key)
         except Exception as e:
             logger.warning(f"Cache key generation failed for {symbol}: {e}")
             cache_key = None
