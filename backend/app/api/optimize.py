@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from app.optimizer import ParameterOptimizer
 from app.core.database import db
+from app.core.security import require_api_key
 import datetime
 import uuid
 
@@ -13,7 +14,7 @@ def run_optimization_task(opt_id, symbol, start_date, end_date, param_grid, metr
     result['timestamp'] = datetime.datetime.now()
     db.optimization_results.insert_one(result)
 
-@router.post("/start")
+@router.post("/start", dependencies=[Depends(require_api_key)])
 async def start_optimization(
     background_tasks: BackgroundTasks,
     symbol: str,

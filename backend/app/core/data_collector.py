@@ -18,14 +18,28 @@ logger = logging.getLogger(__name__)
 class RedisCache:
     """Redis cache untuk data collection dengan TTL"""
     def __init__(self, host='localhost', port=6379, db=0):
-        self.redis_client = redis.Redis(host=host, port=port, db=db, decode_responses=True)
+        self.redis_client = redis.Redis(
+            host=host,
+            port=port,
+            db=db,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1
+        )
     
     def get(self, key):
-        data = self.redis_client.get(key)
-        return json.loads(data) if data else None
+        try:
+            data = self.redis_client.get(key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.warning(f"Redis get failed: {e}")
+            return None
     
     def set(self, key, value, ttl=300):
-        self.redis_client.setex(key, ttl, json.dumps(value))
+        try:
+            self.redis_client.setex(key, ttl, json.dumps(value))
+        except Exception as e:
+            logger.warning(f"Redis set failed: {e}")
     
     def generate_key(self, *args, **kwargs):
         key_str = json.dumps({'args': args, 'kwargs': kwargs}, sort_keys=True)
@@ -43,6 +57,13 @@ class DataSourceManager:
     def __init__(self):
         self.cache = RedisCache()
         self.executor = ThreadPoolExecutor(max_workers=10)
+
+    def close(self):
+        """Release thread pool resources."""
+        try:
+            self.executor.shutdown(wait=False)
+        except Exception as e:
+            logger.warning(f"Executor shutdown failed: {e}")
     
     @backoff.on_exception(backoff.expo, Exception, max_tries=3)
     async def fetch_from_source(self, source: str, symbol: str, **kwargs):
@@ -54,39 +75,73 @@ class DataSourceManager:
         return None
     
     async def _fetch_yfinance(self, symbol: str, period: str = "3mo", interval: str = "1d"):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         df = await loop.run_in_executor(
             self.executor,
             lambda: yf.Ticker(symbol).history(period=period, interval=interval)
         )
         return df
     
-    @staticmethod
+    async def _fetch_alpha_vantage(self, symbol: str, period: str = "3mo", interval: str = "1d"):
+        """Fetch data dari Alpha Vantage (optional)."""
+        api_key = self.SOURCES.get('alpha_vantage', {}).get('api_key')
+        if not api_key:
+            return pd.DataFrame()
+        # Placeholder implementation: return empty to avoid hard failure.
+        # Implement actual Alpha Vantage API call when key is available.
+        return pd.DataFrame()
+
     async def get_price_data(self, symbol: str, period: str = "3mo", interval: str = "1d", use_cache=True):
         """Get price data dengan multi-source dan caching"""
         try:
             cache_key = self.cache.generate_key('price', symbol, period, interval)
-            
-            if use_cache:
+        except Exception as e:
+            logger.warning(f"Cache key generation failed for {symbol}: {e}")
+            cache_key = None
+
+        if use_cache and cache_key:
+            try:
                 cached = self.cache.get(cache_key)
                 if cached:
-                    return pd.DataFrame(cached)
-            
+                    df = pd.DataFrame(cached)
+                    for idx_col in ("Date", "Datetime", "index"):
+                        if idx_col in df.columns:
+                            df[idx_col] = pd.to_datetime(df[idx_col])
+                            df.set_index(idx_col, inplace=True)
+                            break
+                    return df
+            except Exception as e:
+                logger.warning(f"Cache read failed for {symbol}: {e}")
+
+        try:
             for source in sorted(self.SOURCES.keys(), key=lambda x: self.SOURCES[x]['priority']):
                 try:
                     df = await self.fetch_from_source(source, symbol, period=period, interval=interval)
                     if df is not None and not df.empty:
                         # Cache hasil
-                        self.cache.set(cache_key, df.to_dict('records'), ttl=300)
+                        if cache_key:
+                            try:
+                                cached_df = df.reset_index()
+                                self.cache.set(cache_key, cached_df.to_dict('records'), ttl=300)
+                            except Exception as e:
+                                logger.warning(f"Cache write failed for {symbol}: {e}")
                         return df
                 except Exception as e:
                     logger.warning(f"Source {source} failed for {symbol}: {e}")
                     continue
-            
+
             return pd.DataFrame()
         except Exception as e:
             logger.error(f"Error fetching price data for {symbol}: {e}")
             return pd.DataFrame()
+
+
+class DataCollector:
+    """Backward-compatible sync wrapper for data collection."""
+    @staticmethod
+    def get_price_data(symbol: str, period: str = "3mo", interval: str = "1d", use_cache=True):
+        manager = DataSourceManager()
+        return asyncio.run(manager.get_price_data(symbol, period=period, interval=interval, use_cache=use_cache))
 
 
 class NewsScraperV5:

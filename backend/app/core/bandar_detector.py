@@ -24,7 +24,14 @@ class BandarDetectorV5:
     """Level 5 Bandar Detector dengan multiple data sources dan institutional flow"""
     
     def __init__(self):
-        self.cache = redis.Redis(host='localhost', port=6379, db=2, decode_responses=True)
+        self.cache = redis.Redis(
+            host='localhost',
+            port=6379,
+            db=2,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1
+        )
         self.sources = {
             'rti': {'url': 'https://rti.business/api/foreign/{symbol}', 'priority': 1},
             'idx': {'url': 'https://api.idx.co.id/v1/foreign/{symbol}', 'priority': 2},
@@ -194,7 +201,11 @@ class BandarDetectorV5:
     async def analyze(self, symbol: str, df: pd.DataFrame) -> Dict:
         """Complete bandar analysis"""
         cache_key = self._get_cache_key(symbol)
-        cached = self.cache.get(cache_key)
+        try:
+            cached = self.cache.get(cache_key)
+        except Exception as e:
+            logger.warning(f"Bandar cache read failed: {e}")
+            cached = None
         if cached:
             return json.loads(cached)
         
@@ -218,9 +229,9 @@ class BandarDetectorV5:
         }
         
         # Cache for 5 minutes
-        self.cache.setex(cache_key, 300, json.dumps(result))
+        try:
+            self.cache.setex(cache_key, 300, json.dumps(result))
+        except Exception as e:
+            logger.warning(f"Bandar cache write failed: {e}")
         
         return result
-        """Return (accumulation, strength, detail) untuk integrasi ke signal generator."""
-        result = self.detect_foreign_accumulation(symbol, df)
-        return result['is_accumulating'], result['strength'], result

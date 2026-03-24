@@ -35,6 +35,10 @@ class ModelTrainer:
         self.symbol_list = symbol_list
         self.start_date = pd.Timestamp(start_date)
         self.end_date = pd.Timestamp(end_date)
+        if self.start_date.tzinfo is not None:
+            self.start_date = self.start_date.tz_localize(None)
+        if self.end_date.tzinfo is not None:
+            self.end_date = self.end_date.tz_localize(None)
         self.target_days = target_days
         self.ta = TechnicalAnalysis()
         self.sentiment = SentimentAnalyzer()
@@ -46,6 +50,9 @@ class ModelTrainer:
             df = DataCollector.get_price_data(symbol, period="3mo", interval="1d")
             if df.empty:
                 continue
+            if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+                # Normalize to tz-naive to avoid invalid comparisons
+                df.index = df.index.tz_localize(None)
             df = df[(df.index >= self.start_date) & (df.index <= self.end_date)]
             if len(df) < self.target_days + 20:
                 continue

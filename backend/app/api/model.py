@@ -1,11 +1,13 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.ml.trainer import ModelTrainer
 from app.core.database import db
+from app.core.security import require_api_key
 from datetime import datetime
+import asyncio
 
 router = APIRouter(prefix="/model", tags=["model"])
 
-@router.post("/train")
+@router.post("/train", dependencies=[Depends(require_api_key)])
 async def train_model(
     symbols: list[str] = ["BBCA.JK", "BBRI.JK", "ASII.JK", "TLKM.JK"],
     start_date: str = "2024-01-01",
@@ -15,7 +17,7 @@ async def train_model(
 ):
     try:
         trainer = ModelTrainer(symbols, start_date, end_date, target_days)
-        metadata, accuracy = trainer.train(epochs=epochs)
+        metadata, accuracy = await asyncio.to_thread(trainer.train, epochs=epochs)
         return {"message": "Training completed", "accuracy": accuracy, "metadata": metadata}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -25,7 +27,7 @@ async def list_models():
     models = list(db.model_metadata.find({}, {"_id": 0}).sort("timestamp", -1))
     return models
 
-@router.post("/activate")
+@router.post("/activate", dependencies=[Depends(require_api_key)])
 async def activate_model(model_path: str):
     model = db.model_metadata.find_one({"model_path": model_path})
     if not model:

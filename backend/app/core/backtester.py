@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
+import asyncio
 
-from app.core.data_collector import DataSourceManager
-from app.core.signal_generator import SignalGeneratorV5
+from app.core.data_collector import DataCollector
+from app.core.signal_generator import SignalGenerator
 from app.core.risk_manager import RiskManager
 
 class Backtester:
@@ -18,7 +19,7 @@ class Backtester:
         self.commission = commission
         self.slippage = slippage
         self.risk_mgr = RiskManager(capital=initial_capital, risk_per_trade=risk_per_trade)
-        self.signal_generator = signal_generator
+        self.signal_generator = signal_generator or SignalGenerator()
         self.trades = []  # list of trade dicts
         self.daily_equity = []
         self.current_position = None
@@ -26,7 +27,7 @@ class Backtester:
         self.equity_curve = []  # untuk drawdown tracking
 
     def load_data(self):
-        self.df = DataSourceManager().get_price_data(self.symbol, period="3mo", interval="1d")
+        self.df = DataCollector.get_price_data(self.symbol, period="3mo", interval="1d")
         if self.df.empty:
             raise ValueError("No data retrieved")
         self.df = self.df[(self.df.index >= self.start_date) & (self.df.index <= self.end_date)]
@@ -37,6 +38,8 @@ class Backtester:
         for i in range(20, len(self.df)):
             data_slice = self.df.iloc[:i+1]
             signal = self.signal_generator.generate_signal(self.symbol, data_slice)
+            if asyncio.iscoroutine(signal):
+                signal = asyncio.run(signal)
             self.signals.append((self.df.index[i], signal))
 
     def run(self):
@@ -333,21 +336,19 @@ class Backtester:
         
         return {'max_wins': max_wins, 'max_losses': max_losses}
 
-import pandas as pd
-from app.core.backtester import Backtester
+if __name__ == "__main__":
+    # Ambil data historis
+    symbol = "BBCA.JK"
+    start = "2024-01-01"
+    end = "2024-12-31"
 
-# Ambil data historis
-symbol = "BBCA.JK"
-start = "2024-01-01"
-end = "2024-12-31"
+    bt = Backtester(symbol, start, end, initial_capital=100000000, risk_per_trade=0.02, commission=0.001, slippage=0.0005)
+    result = bt.run()
 
-bt = Backtester(symbol, start, end, initial_capital=100000000, risk_per_trade=0.02, commission=0.001, slippage=0.0005)
-result = bt.run()
-
-# Cetak metrik
-print(f"Total Return: {result['total_return']:.2%}")
-print(f"Sharpe Ratio: {result['sharpe_ratio']:.2f}")
-print(f"Max Drawdown: {result['max_drawdown']:.2%}")
-print(f"Win Rate: {result['win_rate']:.2%}")
-print(f"Profit Factor: {result['profit_factor']:.2f}")
-print(f"Number of Trades: {result['num_trades']}")
+    # Cetak metrik
+    print(f"Total Return: {result['total_return']:.2%}")
+    print(f"Sharpe Ratio: {result['sharpe_ratio']:.2f}")
+    print(f"Max Drawdown: {result['max_drawdown']:.2%}")
+    print(f"Win Rate: {result['win_rate']:.2%}")
+    print(f"Profit Factor: {result['profit_factor']:.2f}")
+    print(f"Number of Trades: {result['num_trades']}")

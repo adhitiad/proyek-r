@@ -175,7 +175,9 @@ class MarketScenarioGenerator:
     
     async def _parse_scenario_with_llm(self, prompt: str) -> Dict:
         """Parse natural language to structured parameters"""
-   
+        if not self.groq_api_key:
+            return {'trend': 'neutral', 'volatility': 'medium', 'volume_trend': 'stable', 'sentiment': 'neutral'}
+
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.groq_api_key}",
@@ -199,15 +201,18 @@ class MarketScenarioGenerator:
             "temperature": 0.3
         }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=headers) as response:
-                result = await response.json()
-                import json
-                import re
-                content = result['choices'][0]['message']['content']
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group())
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    result = await response.json()
+                    import json
+                    import re
+                    content = result['choices'][0]['message']['content']
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        return json.loads(json_match.group())
+        except Exception as e:
+            logger.error(f"Scenario LLM parse failed: {e}")
         
         return {'trend': 'neutral', 'volatility': 'medium', 'volume_trend': 'stable', 'sentiment': 'neutral'}
     

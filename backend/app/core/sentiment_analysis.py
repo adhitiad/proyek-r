@@ -166,11 +166,18 @@ class GroqLLMAnalyzer:
 class SentimentAnalyzerV5:
     """Level 5 Sentiment Analysis dengan multi-source dan ensemble"""
     
-    def __init__(self, groq_api_key: str = None):
+    def __init__(self, groq_api_key: str = None, news_scraper=None):
         self.ensemble = EnsembleSentimentModel()
         self.groq = GroqLLMAnalyzer(groq_api_key) if groq_api_key else None
-        self.cache = redis.Redis(host='localhost', port=6379, db=1, decode_responses=True)
-        self.news_scraper = None  # Will be injected
+        self.cache = redis.Redis(
+            host='localhost',
+            port=6379,
+            db=1,
+            decode_responses=True,
+            socket_connect_timeout=1,
+            socket_timeout=1
+        )
+        self.news_scraper = news_scraper
         
     def _get_cache_key(self, symbol: str) -> str:
         return f"sentiment:{symbol}"
@@ -186,7 +193,11 @@ class SentimentAnalyzerV5:
     async def analyze_single_news(self, text: str) -> SentimentResult:
         """Single news analysis with caching"""
         cache_key = hashlib.md5(text.encode()).hexdigest()
-        cached = self.cache.get(cache_key)
+        try:
+            cached = self.cache.get(cache_key)
+        except Exception as e:
+            logger.warning(f"Sentiment cache read failed: {e}")
+            cached = None
         if cached:
             import json
             return SentimentResult(**json.loads(cached))
@@ -222,7 +233,10 @@ class SentimentAnalyzerV5:
         
         # Cache result (TTL 1 hour)
         import json
-        self.cache.setex(cache_key, 3600, json.dumps(result.__dict__))
+        try:
+            self.cache.setex(cache_key, 3600, json.dumps(result.__dict__))
+        except Exception as e:
+            logger.warning(f"Sentiment cache write failed: {e}")
         
         return result
     
@@ -230,7 +244,11 @@ class SentimentAnalyzerV5:
         """Complete sentiment analysis for a symbol"""
         # Check cache
         cache_key = self._get_cache_key(symbol)
-        cached = self.cache.get(cache_key)
+        try:
+            cached = self.cache.get(cache_key)
+        except Exception as e:
+            logger.warning(f"Sentiment cache read failed: {e}")
+            cached = None
         if cached:
             import json
             return json.loads(cached)
@@ -286,6 +304,16 @@ class SentimentAnalyzerV5:
         
         # Cache results (TTL 5 minutes)
         import json
-        self.cache.setex(cache_key, 300, json.dumps(final_result))
+        try:
+            self.cache.setex(cache_key, 300, json.dumps(final_result))
+        except Exception as e:
+            logger.warning(f"Sentiment cache write failed: {e}")
         
         return final_result
+
+
+class SentimentAnalyzer:
+    """Lightweight sentiment analyzer for training features."""
+    def analyze_news(self, symbol: str) -> float:
+        # Placeholder: return neutral sentiment to avoid blocking training.
+        return 0.0

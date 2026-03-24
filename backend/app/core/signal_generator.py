@@ -25,10 +25,15 @@ class Signal:
 class SignalGeneratorV5:
     """Level 5 Signal Generator dengan ensemble dan adaptive weighting"""
     
-    def __init__(self):
-        self.technical = AdvancedTechnicalV5()
-        self.sentiment = SentimentAnalyzerV5()
-        self.bandar = BandarDetectorV5()
+    def __init__(
+        self,
+        technical: Optional[AdvancedTechnicalV5] = None,
+        sentiment: Optional[SentimentAnalyzerV5] = None,
+        bandar: Optional[BandarDetectorV5] = None
+    ):
+        self.technical = technical or AdvancedTechnicalV5()
+        self.sentiment = sentiment or SentimentAnalyzerV5()
+        self.bandar = bandar or BandarDetectorV5()
         
         # Adaptive weights based on market regime
         self.base_weights = {
@@ -260,3 +265,60 @@ class SignalGeneratorV5:
             },
             timestamp=pd.Timestamp.now().isoformat()
         )
+
+
+def signal_to_legacy_dict(signal: Signal) -> Dict:
+    """Map Signal (V5) to legacy dict format expected by older modules."""
+    reasoning = signal.reasoning or {}
+    technical = reasoning.get('technical', {})
+    sentiment = reasoning.get('sentiment', {})
+    institutional = reasoning.get('institutional', {})
+
+    notes_parts = []
+    if technical:
+        notes_parts.append(f"Trend {technical.get('trend', 'n/a')}")
+        regime = technical.get('regime')
+        if regime:
+            notes_parts.append(f"Regime {regime}")
+    if sentiment:
+        notes_parts.append(f"Sentiment score {sentiment.get('score', 0):.2f}")
+    if institutional:
+        notes_parts.append(f"Institutional {institutional.get('verdict', 'n/a')}")
+
+    notes = " | ".join(notes_parts) if notes_parts else "Auto-generated signal."
+
+    return {
+        'symbol': signal.symbol,
+        'bias': signal.bias,
+        'action': signal.action,
+        'action_type': 'market',
+        'entry_zone': float(signal.entry_price),
+        'stop_loss_1': float(signal.stop_loss) if signal.stop_loss is not None else None,
+        'stop_loss_2': None,
+        'take_profit_1': float(signal.take_profit) if signal.take_profit is not None else None,
+        'take_profit_2': None,
+        'risk_reward': f"{signal.risk_reward:.2f}",
+        'probability': int(round(signal.confidence * 100)),
+        'notes': notes
+    }
+
+
+class SignalGenerator:
+    """Legacy-compatible signal generator wrapper around V5."""
+    def __init__(
+        self,
+        capital: float = 100000000,
+        params: Optional[Dict] = None,
+        v5: Optional[SignalGeneratorV5] = None
+    ):
+        self.capital = capital
+        self.params = params or {}
+        self._v5 = v5 or SignalGeneratorV5()
+
+    @property
+    def sentiment(self):
+        return self._v5.sentiment
+
+    def generate_signal(self, symbol: str, df: pd.DataFrame) -> Dict:
+        signal = asyncio.run(self._v5.generate_signal(symbol, df))
+        return signal_to_legacy_dict(signal)

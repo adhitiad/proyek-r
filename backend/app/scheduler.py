@@ -2,6 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from app.core.signal_generator import SignalGenerator
+from app.core.singletons import get_signal_generator_v5
 from app.core.data_collector import DataCollector
 from app.core.database import db
 from app.services.telegram_bot import send_telegram_message
@@ -23,6 +24,7 @@ def scan_and_update_signals():
         {"symbol": "BBNI.JK"}, {"symbol": "BMRI.JK"}, {"symbol": "ADRO.JK"},
         {"symbol": "EURUSD=X"}, {"symbol": "XAUUSD=X"}
     ]
+    gen = SignalGenerator(v5=get_signal_generator_v5())
     for inst in instruments:
         symbol = inst['symbol']
         try:
@@ -31,7 +33,6 @@ def scan_and_update_signals():
                 logger.warning(f"No data for {symbol}")
                 continue
 
-            gen = SignalGenerator()
             signal = gen.generate_signal(symbol, df)
 
             existing = db.signals.find_one({"symbol": symbol})
@@ -41,21 +42,27 @@ def scan_and_update_signals():
                     msg = f"🔄 **Sinyal Baru**\n📊 {symbol}\n🎯 {signal['action'].upper()} @ {signal['entry_zone']:,.0f}\n📈 Prob: {signal['probability']}%\n📝 {signal['notes'][:100]}"
                     send_telegram_message(msg)
                     # Broadcast via WebSocket
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    if loop and loop.is_running():
                         asyncio.create_task(manager.broadcast(signal))
                     else:
-                        loop.run_until_complete(manager.broadcast(signal))
+                        asyncio.run(manager.broadcast(signal))
                 db.signals.update_one({"symbol": symbol}, {"$set": signal})
             else:
                 db.signals.insert_one(signal)
                 msg = f"🔔 **Sinyal Awal**\n📊 {symbol}\n🎯 {signal['action'].upper()} @ {signal['entry_zone']:,.0f}\n📈 Prob: {signal['probability']}%"
                 send_telegram_message(msg)
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop and loop.is_running():
                     asyncio.create_task(manager.broadcast(signal))
                 else:
-                    loop.run_until_complete(manager.broadcast(signal))
+                    asyncio.run(manager.broadcast(signal))
 
         except Exception as e:
             logger.error(f"Error scanning {symbol}: {e}")

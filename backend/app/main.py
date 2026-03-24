@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 
 from app.api import telegram
@@ -6,10 +6,11 @@ from app.api import sentiment
 from app.api import signals, backtest, evaluation
 from app.scheduler import start_scheduler
 from app.api import optimize
-from backend.app.api import websocket
+from app.api import websocket
 from app.api import model
 from app.api import v6
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from app.core.singletons import get_data_manager, shutdown_singletons
 
 
 # Metrics
@@ -41,4 +42,9 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
+    get_data_manager()
     start_scheduler()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    shutdown_singletons()

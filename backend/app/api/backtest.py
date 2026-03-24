@@ -1,12 +1,14 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.core.backtester import Backtester
 from app.core.screener import Screener
 from app.core.database import db
+from app.core.security import require_api_key
+import asyncio
 import datetime
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_api_key)])
 async def run_backtest(
     symbol: str,
     start_date: str,
@@ -18,7 +20,7 @@ async def run_backtest(
 ):
     try:
         bt = Backtester(symbol, start_date, end_date, initial_capital, risk_per_trade, commission, slippage)
-        result = bt.run()
+        result = await asyncio.to_thread(bt.run)
         # Simpan ke database
         result['timestamp'] = datetime.datetime.now()
         db.backtest_results.insert_one(result)
@@ -26,7 +28,7 @@ async def run_backtest(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/screen")
+@router.post("/screen", dependencies=[Depends(require_api_key)])
 async def screen(
     symbols: list[str],
     start_date: str,
@@ -42,7 +44,7 @@ async def screen(
                             risk_per_trade=risk_per_trade,
                             commission=commission,
                             slippage=slippage)
-        results = screener.run()
+        results = await asyncio.to_thread(screener.run)
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -59,7 +61,7 @@ async def get_backtest_metrics(
     """
     try:
         bt = Backtester(symbol, start_date, end_date, initial_capital)
-        result = bt.run()
+        result = await asyncio.to_thread(bt.run)
         return {
             'symbol': symbol,
             'period': f"{start_date} to {end_date}",
@@ -105,7 +107,7 @@ async def get_trades_history(
     """
     try:
         bt = Backtester(symbol, start_date, end_date, initial_capital)
-        result = bt.run()
+        result = await asyncio.to_thread(bt.run)
         trades = result['trades'][-limit:]  # ambil terakhir limit
         return {
             'symbol': symbol,

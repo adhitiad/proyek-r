@@ -1,9 +1,7 @@
 from app.celery_app import celery_app
-from app.core.signal_generator import SignalGeneratorV5
-from app.core.data_collector import DataSourceManager, NewsScraperV5
+from app.core.singletons import get_data_manager, get_news_scraper, get_signal_generator_v5
 from app.ml.trainer import ModelTrainer
 from app.services.telegram_bot import send_telegram_message
-from app.services.websocket_manager import manager
 from app.core.database import db
 import asyncio
 import logging
@@ -16,9 +14,9 @@ def scan_signals(self):
     """Scan all instruments and update signals"""
     try:
         instruments = list(db.instruments.find({}, {"symbol": 1}))
-        data_manager = DataSourceManager()
-        news_scraper = NewsScraperV5()
-        signal_gen = SignalGeneratorV5()
+        data_manager = get_data_manager()
+        news_scraper = get_news_scraper()
+        signal_gen = get_signal_generator_v5()
         
         # Inject dependencies
         signal_gen.sentiment.news_scraper = news_scraper
@@ -33,19 +31,19 @@ def scan_signals(self):
                 
                 signal = asyncio.run(signal_gen.generate_signal(symbol, df))
                 
+                # Send notification if signal changed (compare before update)
+                old_signal = db.signals.find_one({"symbol": symbol})
+                if old_signal and old_signal.get('action') != signal.action:
+                    send_telegram_message(f"🔄 Signal Changed: {symbol} -> {signal.action.upper()}")
+
                 # Save to database
                 db.signals.update_one(
                     {"symbol": symbol},
                     {"$set": signal.__dict__},
                     upsert=True
                 )
-                
+
                 results.append(signal)
-                
-                # Send notification if signal changed
-                old_signal = db.signals.find_one({"symbol": symbol})
-                if old_signal and old_signal.get('action') != signal.action:
-                    send_telegram_message(f"🔄 Signal Changed: {symbol} -> {signal.action.upper()}")
                 
             except Exception as e:
                 logger.error(f"Error scanning {symbol}: {e}")
@@ -65,7 +63,7 @@ def retrain_model(self):
         start_date = end_date - timedelta(days=365)
         symbols = ["BBCA.JK", "BBRI.JK", "ASII.JK", "TLKM.JK", "UNVR.JK"]
         
-        trainer = ModelTrainerV5(symbols, start_date, end_date)
+        trainer = ModelTrainer(symbols, start_date, end_date)
         metadata, accuracy = trainer.train(epochs=100)
         
         # Compare with active model

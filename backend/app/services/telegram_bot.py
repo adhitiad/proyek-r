@@ -1,23 +1,39 @@
 import requests
 import os
 import logging
-from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # bisa string atau list
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # bisa string atau list (comma-separated)
 
-def send_telegram_message(text):
-    if not BOT_TOKEN or not CHAT_ID:
-        logger.warning("Telegram token or chat ID not set")
+def _normalize_chat_ids(value):
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if isinstance(value, str):
+        if "," in value:
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return [value.strip()]
+    return [str(value)]
+
+
+def send_telegram_message(text, chat_id=None):
+    if not BOT_TOKEN:
+        logger.warning("Telegram token not set")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text}
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        logger.error(f"Telegram send error: {e}")
+    targets = _normalize_chat_ids(chat_id or CHAT_ID)
+    if not targets:
+        logger.warning("Telegram chat ID not set")
+        return
+    for target in targets:
+        payload = {"chat_id": target, "text": text}
+        try:
+            requests.post(url, json=payload, timeout=5)
+        except Exception as e:
+            logger.error(f"Telegram send error: {e}")
 
 async def handle_telegram_update(update: dict):
     """Proses update dari webhook Telegram."""

@@ -13,7 +13,9 @@ def get_metrics():
     df = pd.DataFrame(trades)
     
     win_rate = (df['profit'] > 0).mean()
-    profit_factor = df[df['profit']>0]['profit'].sum() / abs(df[df['profit']<0]['profit'].sum())
+    total_profit = df[df['profit'] > 0]['profit'].sum()
+    total_loss = abs(df[df['profit'] < 0]['profit'].sum())
+    profit_factor = (total_profit / total_loss) if total_loss != 0 else None
     
     # Hitung drawdown
     df['cumulative'] = df['profit'].cumsum()
