@@ -5,6 +5,8 @@ from dataclasses import dataclass
 import warnings
 warnings.filterwarnings('ignore')
 
+from app.core.config import settings
+
 @dataclass
 class MarketRegime:
     """Market regime detection"""
@@ -16,7 +18,7 @@ class AdvancedTechnicalV5:
     """Level 5 Technical Analysis dengan Multi-timeframe dan Order Flow"""
     
     def __init__(self):
-        self.timeframes = ['1d', '4h', '1h']
+        self.timeframes = settings.TECH_TIMEFRAMES
         
     def detect_market_regime(self, df: pd.DataFrame) -> MarketRegime:
         """Deteksi market regime menggunakan ADX, ATR, dan volatility"""
@@ -124,11 +126,22 @@ class AdvancedTechnicalV5:
                 'support_resistance': self.find_support_resistance(df)
             }
         
+        if not results:
+            return {
+                'timeframes': {},
+                'trend_alignment': True,
+                'strongest_trend': None
+            }
+
         # Konfirmasi trend antar timeframe
-        trend_alignment = all(
-            results[tf]['trend'] == results['1d']['trend'] 
-            for tf in results if tf != '1d'
-        )
+        base_tf = '1d' if '1d' in results else next(iter(results.keys()))
+        if len(results) <= 1:
+            trend_alignment = True
+        else:
+            trend_alignment = all(
+                results[tf]['trend'] == results[base_tf]['trend']
+                for tf in results if tf != base_tf
+            )
         
         return {
             'timeframes': results,

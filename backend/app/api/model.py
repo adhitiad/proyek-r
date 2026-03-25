@@ -1,11 +1,21 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
+from pydantic import BaseModel
 from app.ml.trainer import ModelTrainer
+from app.ml.automl import AutoMLSelector
 from app.core.database import db
 from app.core.security import require_api_key
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
+from typing import Optional, Any
 
 router = APIRouter(prefix="/model", tags=["model"])
+
+class AutoMLRequest(BaseModel):
+    symbols: Optional[list[str]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    target_days: Optional[int] = None
+    trials: Optional[list[dict[str, Any]]] = None
 
 @router.post("/train", dependencies=[Depends(require_api_key)])
 async def train_model(
@@ -21,6 +31,46 @@ async def train_model(
         return {"message": "Training completed", "accuracy": accuracy, "metadata": metadata}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/automl", dependencies=[Depends(require_api_key)])
+async def run_automl(
+    symbols: list[str] = ["BBCA.JK", "BBRI.JK", "ASII.JK", "TLKM.JK"],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    target_days: int = 5,
+    payload: Optional[AutoMLRequest] = Body(default=None)
+):
+    try:
+        req = payload or AutoMLRequest()
+        final_symbols = req.symbols or symbols
+        final_target_days = req.target_days or target_days
+        end = datetime.fromisoformat(req.end_date) if req.end_date else (
+            datetime.fromisoformat(end_date) if end_date else datetime.now()
+        )
+        start = datetime.fromisoformat(req.start_date) if req.start_date else (
+            datetime.fromisoformat(start_date) if start_date else end - timedelta(days=365)
+        )
+        selector = AutoMLSelector(final_symbols, start.isoformat(), end.isoformat(), final_target_days)
+        metadata, accuracy, trials = selector.run(trials=req.trials)
+        return {
+            "message": "AutoML completed",
+            "accuracy": accuracy,
+            "metadata": metadata,
+            "trials": trials
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/automl/latest")
+async def get_latest_automl():
+    run = db.automl_runs.find_one(sort=[("timestamp", -1)])
+    if not run:
+        return {"latest": None}
+
+    run["_id"] = str(run["_id"])
+    if isinstance(run.get("timestamp"), datetime):
+        run["timestamp"] = run["timestamp"].isoformat()
+    return {"latest": run}
 
 @router.get("/list")
 async def list_models():

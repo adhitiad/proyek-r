@@ -3,6 +3,7 @@ from app.core.signal_generator_v6 import SignalGeneratorV6
 from app.core.database import db
 from app.core.singletons import get_data_manager
 from app.core.security import require_api_key
+from app.core.config import settings
 
 import os
 
@@ -16,7 +17,11 @@ async def get_level6_signal(symbol: str):
     """Get Level 6 signal with generative & predictive capabilities"""
     data_manager = get_data_manager()
     
-    df = await data_manager.get_price_data(symbol)
+    df = await data_manager.get_price_data(
+        symbol,
+        period=settings.DATA_PERIOD,
+        interval=settings.DATA_INTERVAL
+    )
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
     
@@ -32,7 +37,11 @@ async def generate_scenario(prompt: str, symbol: str):
     """Generate market scenario using GAN + LLM"""
     data_manager = get_data_manager()
     
-    df = await data_manager.get_price_data(symbol)
+    df = await data_manager.get_price_data(
+        symbol,
+        period=settings.DATA_PERIOD,
+        interval=settings.DATA_INTERVAL
+    )
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
     
@@ -44,7 +53,11 @@ async def optimize_with_rl(symbol: str):
     """Optimize strategy using Deep Reinforcement Learning"""
     data_manager = get_data_manager()
     
-    df = await data_manager.get_price_data(symbol, period="6mo")
+    df = await data_manager.get_price_data(
+        symbol,
+        period=settings.DATA_PERIOD,
+        interval=settings.DATA_INTERVAL
+    )
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
     
@@ -56,7 +69,11 @@ async def get_macro_impact(symbol: str):
     """Get global macro impact analysis"""
     data_manager = get_data_manager()
     
-    df = await data_manager.get_price_data(symbol)
+    df = await data_manager.get_price_data(
+        symbol,
+        period=settings.DATA_PERIOD,
+        interval=settings.DATA_INTERVAL
+    )
     if df.empty:
         raise HTTPException(status_code=404, detail="Data not found")
     

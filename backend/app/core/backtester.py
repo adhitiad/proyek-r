@@ -6,6 +6,7 @@ import asyncio
 from app.core.data_collector import DataCollector
 from app.core.signal_generator import SignalGenerator
 from app.core.risk_manager import RiskManager
+from app.core.config import settings
 
 class Backtester:
     def __init__(self, symbol, start_date, end_date, initial_capital=100000000,
@@ -29,8 +30,8 @@ class Backtester:
     def load_data(self):
         self.df = DataCollector.get_price_data(
             self.symbol,
-            period="3mo",
-            interval="1d",
+            period=settings.DATA_PERIOD,
+            interval=settings.DATA_INTERVAL,
             start_date=self.start_date,
             end_date=self.end_date
         )

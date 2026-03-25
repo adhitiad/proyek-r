@@ -4,10 +4,12 @@ from apscheduler.triggers.cron import CronTrigger
 from app.core.signal_generator import SignalGenerator
 from app.core.singletons import get_signal_generator_v5
 from app.core.data_collector import DataCollector
+from app.core.config import settings
 from app.core.database import db
 from app.services.telegram_bot import send_telegram_message
 from app.services.websocket_manager import manager
 from app.ml.trainer import ModelTrainer
+from app.ml.automl import AutoMLSelector
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -28,7 +30,11 @@ def scan_and_update_signals():
     for inst in instruments:
         symbol = inst['symbol']
         try:
-            df = DataCollector.get_price_data(symbol, period="1mo", interval="1d")
+            df = DataCollector.get_price_data(
+                symbol,
+                period=settings.DATA_PERIOD,
+                interval=settings.DATA_INTERVAL
+            )
             if df.empty:
                 logger.warning(f"No data for {symbol}")
                 continue
@@ -74,9 +80,18 @@ def retrain_model():
     start_date = end_date - timedelta(days=365)
     symbols = ["BBCA.JK", "BBRI.JK", "ASII.JK", "TLKM.JK", "UNVR.JK"]
 
-    trainer = ModelTrainer(symbols, start_date.isoformat(), end_date.isoformat(), target_days=5)
     try:
-        metadata, accuracy = trainer.train(epochs=100)
+        if settings.ENABLE_AUTOML:
+            selector = AutoMLSelector(
+                symbols,
+                start_date.isoformat(),
+                end_date.isoformat(),
+                target_days=5
+            )
+            metadata, accuracy, _ = selector.run()
+        else:
+            trainer = ModelTrainer(symbols, start_date.isoformat(), end_date.isoformat(), target_days=5)
+            metadata, accuracy = trainer.train(epochs=100)
         msg = f"🤖 **Model Retraining Complete**\n📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n🎯 Akurasi: {accuracy:.2%}\n📁 Model: {metadata['model_path']}"
         send_telegram_message(msg)
 

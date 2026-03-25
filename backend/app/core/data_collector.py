@@ -13,6 +13,8 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 class RedisCache:
@@ -77,8 +79,8 @@ class DataSourceManager:
     async def _fetch_yfinance(
         self,
         symbol: str,
-        period: str = "3mo",
-        interval: str = "1d",
+        period: str = settings.DATA_PERIOD,
+        interval: str = settings.DATA_INTERVAL,
         start_date=None,
         end_date=None
     ):
@@ -94,7 +96,12 @@ class DataSourceManager:
         )
         return df
     
-    async def _fetch_alpha_vantage(self, symbol: str, period: str = "3mo", interval: str = "1d"):
+    async def _fetch_alpha_vantage(
+        self,
+        symbol: str,
+        period: str = settings.DATA_PERIOD,
+        interval: str = settings.DATA_INTERVAL
+    ):
         """Fetch data dari Alpha Vantage (optional)."""
         api_key = self.SOURCES.get('alpha_vantage', {}).get('api_key')
         if not api_key:
@@ -106,8 +113,8 @@ class DataSourceManager:
     async def get_price_data(
         self,
         symbol: str,
-        period: str = "3mo",
-        interval: str = "1d",
+        period: str = settings.DATA_PERIOD,
+        interval: str = settings.DATA_INTERVAL,
         use_cache=True,
         start_date=None,
         end_date=None
@@ -170,8 +177,8 @@ class DataCollector:
     @staticmethod
     def get_price_data(
         symbol: str,
-        period: str = "3mo",
-        interval: str = "1d",
+        period: str = settings.DATA_PERIOD,
+        interval: str = settings.DATA_INTERVAL,
         use_cache=True,
         start_date=None,
         end_date=None

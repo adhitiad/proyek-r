@@ -14,6 +14,7 @@ from app.core.database import db
 from app.core.data_collector import DataCollector
 from app.core.technical_analysis import TechnicalAnalysis
 from app.core.sentiment_analysis import SentimentAnalyzer
+from app.core.config import settings
 
 class SignalModel(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, output_dim=1):
@@ -51,8 +52,8 @@ class ModelTrainer:
         for symbol in self.symbol_list:
             df = DataCollector.get_price_data(
                 symbol,
-                period="3mo",
-                interval="1d",
+                period=settings.DATA_PERIOD,
+                interval=settings.DATA_INTERVAL,
                 start_date=self.start_date,
                 end_date=self.end_date
             )

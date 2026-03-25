@@ -1,8 +1,10 @@
 from app.celery_app import celery_app
 from app.core.singletons import get_data_manager, get_news_scraper, get_signal_generator_v5
 from app.ml.trainer import ModelTrainer
+from app.ml.automl import AutoMLSelector
 from app.services.telegram_bot import send_telegram_message
 from app.core.database import db
+from app.core.config import settings
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -63,8 +65,12 @@ def retrain_model(self):
         start_date = end_date - timedelta(days=365)
         symbols = ["BBCA.JK", "BBRI.JK", "ASII.JK", "TLKM.JK", "UNVR.JK"]
         
-        trainer = ModelTrainer(symbols, start_date, end_date)
-        metadata, accuracy = trainer.train(epochs=100)
+        if settings.ENABLE_AUTOML:
+            selector = AutoMLSelector(symbols, start_date, end_date, target_days=5)
+            metadata, accuracy, _ = selector.run()
+        else:
+            trainer = ModelTrainer(symbols, start_date, end_date)
+            metadata, accuracy = trainer.train(epochs=100)
         
         # Compare with active model
         active_config = db.config.find_one({"key": "active_model"})

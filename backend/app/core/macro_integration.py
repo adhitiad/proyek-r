@@ -6,6 +6,8 @@ import asyncio
 import aiohttp
 import logging
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 class CrossAssetCorrelation:
@@ -28,7 +30,12 @@ class CrossAssetCorrelation:
         data = {}
         for symbol in symbols:
             try:
-                df = yf.download(symbol, period="1mo", interval="1d", progress=False)
+                df = yf.download(
+                    symbol,
+                    period=settings.DATA_PERIOD,
+                    interval=settings.DATA_INTERVAL,
+                    progress=False
+                )
                 if not df.empty:
                     data[symbol] = df['Close']
             except Exception as e:
