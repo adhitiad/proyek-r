@@ -22,11 +22,23 @@ class AdvancedTechnicalV5:
         
     def detect_market_regime(self, df: pd.DataFrame) -> MarketRegime:
         """Deteksi market regime menggunakan ADX, ATR, dan volatility"""
+        # Handle data insufficient untuk analisis
+        if len(df) < 20:
+            return MarketRegime(type='ranging', strength=0.5, direction='neutral')
+        
         # ADX untuk trend strength
-        adx = self.adx(df)[-1]
+        adx_series = self.adx(df)
+        if pd.isna(adx_series.iloc[-1]) or adx_series.iloc[-1] == 0:
+            return MarketRegime(type='ranging', strength=0.5, direction='neutral')
+        
+        adx = adx_series[-1]
         # ATR untuk volatility
         atr = self.atr(df)[-1]
-        avg_atr = self.atr(df).rolling(20).mean()[-1]
+        avg_atr = self.atr(df).rolling(20).mean()
+        if len(avg_atr) < 1 or pd.isna(avg_atr.iloc[-1]):
+            avg_atr_val = atr  # fallback to current ATR
+        else:
+            avg_atr_val = avg_atr.iloc[-1]
         
         if adx > 25:
             regime_type = 'trending'
@@ -34,14 +46,18 @@ class AdvancedTechnicalV5:
             # Deteksi arah trend
             ema_20 = df['Close'].rolling(20).mean()
             ema_50 = df['Close'].rolling(50).mean()
-            direction = 'up' if ema_20.iloc[-1] > ema_50.iloc[-1] else 'down'
-        elif atr > avg_atr * 1.5:
+            # Handle NaN values
+            if ema_20.iloc[-1] > ema_50.iloc[-1] if not pd.isna(ema_50.iloc[-1]) else False:
+                direction = 'up'
+            else:
+                direction = 'down'
+        elif avg_atr_val > 0 and atr > avg_atr_val * 1.5:
             regime_type = 'volatile'
-            strength = atr / avg_atr
+            strength = min(atr / avg_atr_val, 1.0)
             direction = 'neutral'
         else:
             regime_type = 'ranging'
-            strength = 1 - (adx / 100)
+            strength = 1 - (adx / 100) if adx > 0 else 0.5
             direction = 'neutral'
         
         return MarketRegime(regime_type, strength, direction)
@@ -85,29 +101,56 @@ class AdvancedTechnicalV5:
     
     def volume_profile(self, df: pd.DataFrame, num_bins: int = 30) -> Dict:
         """Volume Profile Analysis"""
-        price_range = df['High'].max() - df['Low'].min()
-        bin_width = price_range / num_bins
-        bins = np.arange(df['Low'].min(), df['High'].max() + bin_width, bin_width)
-        
-        volume_profile = []
-        for i in range(len(bins) - 1):
-            mask = (df['Close'] >= bins[i]) & (df['Close'] < bins[i + 1])
-            volume = df.loc[mask, 'Volume'].sum()
-            volume_profile.append({
-                'price_low': bins[i],
-                'price_high': bins[i + 1],
-                'volume': volume
-            })
-        
-        # Find POC (Point of Control)
-        poc = max(volume_profile, key=lambda x: x['volume'])
-        
-        return {
-            'profile': volume_profile,
-            'poc': poc,
-            'value_area_high': bins[-10] if len(bins) > 10 else bins[-1],
-            'value_area_low': bins[10] if len(bins) > 10 else bins[0]
-        }
+        try:
+            price_range = df['High'].max() - df['Low'].min()
+            if price_range == 0 or pd.isna(price_range):
+                return {
+                    'profile': [],
+                    'poc': {'price_low': 0, 'price_high': 0, 'volume': 0},
+                    'value_area_high': 0,
+                    'value_area_low': 0
+                }
+            
+            bin_width = price_range / num_bins
+            bins = np.arange(df['Low'].min(), df['High'].max() + bin_width, bin_width)
+            
+            volume_profile = []
+            for i in range(len(bins) - 1):
+                try:
+                    mask = (df['Close'] >= bins[i]) & (df['Close'] < bins[i + 1])
+                    volume_col = df.loc[mask, 'Volume']
+                    # Ensure Volume is numeric
+                    if pd.api.types.is_numeric_dtype(volume_col):
+                        volume = volume_col.sum()
+                    else:
+                        volume = 0
+                except Exception:
+                    volume = 0
+                volume_profile.append({
+                    'price_low': bins[i],
+                    'price_high': bins[i + 1],
+                    'volume': volume
+                })
+            
+            # Find POC (Point of Control)
+            if volume_profile:
+                poc = max(volume_profile, key=lambda x: x['volume'])
+            else:
+                poc = {'price_low': 0, 'price_high': 0, 'volume': 0}
+            
+            return {
+                'profile': volume_profile,
+                'poc': poc,
+                'value_area_high': bins[-10] if len(bins) > 10 else bins[-1],
+                'value_area_low': bins[10] if len(bins) > 10 else bins[0]
+            }
+        except Exception as e:
+            return {
+                'profile': [],
+                'poc': {'price_low': 0, 'price_high': 0, 'volume': 0},
+                'value_area_high': 0,
+                'value_area_low': 0
+            }
     
     def order_flow_imbalance(self, df: pd.DataFrame, window: int = 5) -> pd.Series:
         """Order flow imbalance berdasarkan volume dan price change"""
@@ -151,43 +194,83 @@ class AdvancedTechnicalV5:
     
     def detect_trend(self, df: pd.DataFrame) -> str:
         """Deteksi trend menggunakan multiple moving averages"""
+        # Handle insufficient data
+        if len(df) < 50:
+            return 'neutral'
+        
         ema_20 = df['Close'].rolling(20).mean()
         ema_50 = df['Close'].rolling(50).mean()
         ema_200 = df['Close'].rolling(200).mean()
         
-        if ema_20.iloc[-1] > ema_50.iloc[-1] > ema_200.iloc[-1]:
-            return 'strong_bullish'
-        elif ema_20.iloc[-1] > ema_50.iloc[-1]:
-            return 'bullish'
-        elif ema_20.iloc[-1] < ema_50.iloc[-1] < ema_200.iloc[-1]:
-            return 'strong_bearish'
-        elif ema_20.iloc[-1] < ema_50.iloc[-1]:
-            return 'bearish'
+        # Handle NaN values
+        try:
+            val_20 = ema_20.iloc[-1]
+            val_50 = ema_50.iloc[-1]
+            val_200 = ema_200.iloc[-1]
+            
+            if pd.isna(val_20) or pd.isna(val_50):
+                return 'neutral'
+            
+            if val_20 > val_50:
+                if not pd.isna(val_200) and val_50 > val_200:
+                    return 'strong_bullish'
+                return 'bullish'
+            elif val_20 < val_50:
+                if not pd.isna(val_200) and val_50 < val_200:
+                    return 'strong_bearish'
+                return 'bearish'
+        except Exception:
+            pass
+        
         return 'neutral'
     
     def find_support_resistance(self, df: pd.DataFrame, window: int = 20) -> Dict:
         """Find support and resistance levels"""
-        # Pivot points
-        pivot_highs = []
-        pivot_lows = []
-        
-        for i in range(window, len(df) - window):
-            if df['High'].iloc[i] == df['High'].iloc[i-window:i+window+1].max():
-                pivot_highs.append(df['High'].iloc[i])
-            if df['Low'].iloc[i] == df['Low'].iloc[i-window:i+window+1].min():
-                pivot_lows.append(df['Low'].iloc[i])
-        
-        # Cluster similar levels
-        resistance = self._cluster_levels(pivot_highs[-5:] if len(pivot_highs) > 5 else pivot_highs)
-        support = self._cluster_levels(pivot_lows[-5:] if len(pivot_lows) > 5 else pivot_lows)
-        
-        return {
-            'resistance': resistance,
-            'support': support,
-            'current_price': df['Close'].iloc[-1],
-            'nearest_resistance': min(resistance, key=lambda x: abs(x - df['Close'].iloc[-1])) if resistance else None,
-            'nearest_support': min(support, key=lambda x: abs(x - df['Close'].iloc[-1])) if support else None
-        }
+        try:
+            # Handle insufficient data
+            if len(df) < window * 2:
+                return {
+                    'resistance': [],
+                    'support': [],
+                    'current_price': df['Close'].iloc[-1] if len(df) > 0 else 0,
+                    'nearest_resistance': None,
+                    'nearest_support': None
+                }
+            
+            # Pivot points
+            pivot_highs = []
+            pivot_lows = []
+            
+            for i in range(window, len(df) - window):
+                try:
+                    if df['High'].iloc[i] == df['High'].iloc[i-window:i+window+1].max():
+                        pivot_highs.append(float(df['High'].iloc[i]))
+                    if df['Low'].iloc[i] == df['Low'].iloc[i-window:i+window+1].min():
+                        pivot_lows.append(float(df['Low'].iloc[i]))
+                except Exception:
+                    continue
+            
+            # Cluster similar levels
+            resistance = self._cluster_levels(pivot_highs[-5:] if len(pivot_highs) > 5 else pivot_highs)
+            support = self._cluster_levels(pivot_lows[-5:] if len(pivot_lows) > 5 else pivot_lows)
+            
+            current_price = float(df['Close'].iloc[-1]) if len(df) > 0 else 0
+            
+            return {
+                'resistance': resistance,
+                'support': support,
+                'current_price': current_price,
+                'nearest_resistance': min(resistance, key=lambda x: abs(x - current_price)) if resistance else None,
+                'nearest_support': min(support, key=lambda x: abs(x - current_price)) if support else None
+            }
+        except Exception as e:
+            return {
+                'resistance': [],
+                'support': [],
+                'current_price': 0,
+                'nearest_resistance': None,
+                'nearest_support': None
+            }
     
     def _cluster_levels(self, levels: List[float], tolerance: float = 0.01) -> List[float]:
         """Cluster price levels yang berdekatan"""

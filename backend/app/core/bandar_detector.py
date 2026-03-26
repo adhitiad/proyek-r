@@ -1,16 +1,43 @@
+import os
 import pandas as pd
 import numpy as np
 import aiohttp
 import asyncio
-import redis
+from app.utils.redis import get_redis
 import json
 import logging
 from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _json_serializable(obj):
+    """Convert object to JSON-serializable dict"""
+    import datetime as dt
+    if hasattr(obj, '__dict__'):
+        result = {}
+        for k, v in obj.__dict__.items():
+            if isinstance(v, pd.Timestamp):
+                result[k] = v.isoformat()
+            elif pd.isna(v):
+                result[k] = None
+            elif isinstance(v, (dt.datetime, dt.date)):
+                result[k] = v.isoformat() if hasattr(v, 'isoformat') else str(v)
+            elif isinstance(v, (list, tuple)):
+                result[k] = [_json_serializable(i) if hasattr(i, '__dict__') else (
+                    i.isoformat() if isinstance(i, (dt.datetime, dt.date)) else i
+                ) for i in v]
+            elif hasattr(v, '__dict__'):
+                result[k] = _json_serializable(v)
+            elif v is None or isinstance(v, (str, int, float, bool)):
+                result[k] = v
+            else:
+                result[k] = str(v)
+        return result
+    return obj
 
 @dataclass
 class InstitutionalFlow:
@@ -26,14 +53,10 @@ class BandarDetectorV5:
     """Level 5 Bandar Detector dengan multiple data sources dan institutional flow"""
     
     def __init__(self):
-        self.cache = redis.Redis(
-            host='localhost',
-            port=6379,
-            db=2,
-            decode_responses=True,
-            socket_connect_timeout=1,
-            socket_timeout=1
-        )
+        try:
+            self.cache = get_redis()
+        except Exception:
+            self.cache = None
         self.sources = {
             'rti': {'url': 'https://rti.business/api/foreign/{symbol}', 'priority': 1},
             'idx': {'url': 'https://api.idx.co.id/v1/foreign/{symbol}', 'priority': 2},
@@ -234,7 +257,7 @@ class BandarDetectorV5:
         
         # Cache for 5 minutes
         try:
-            self.cache.setex(cache_key, 300, json.dumps(result))
+            self.cache.setex(cache_key, 300, json.dumps(_json_serializable(result)))
         except Exception as e:
             logger.warning(f"Bandar cache write failed: {e}")
         

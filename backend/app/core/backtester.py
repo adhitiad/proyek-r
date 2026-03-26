@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import asyncio
+import logging
 
 from app.core.data_collector import DataCollector
 from app.core.signal_generator import SignalGenerator
@@ -37,17 +38,44 @@ class Backtester:
         )
         if self.df.empty:
             raise ValueError("No data retrieved")
+        
+        # Handle NaN values in price data
+        if self.df['Close'].isna().any():
+            # Forward fill then backward fill remaining NaN
+            self.df = self.df.ffill().bfill()
+        
+        # Remove rows with all NaN values
+        self.df = self.df.dropna(how='all')
+        
+        # Verify we have valid OHLCV data
+        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        for col in required_cols:
+            if col not in self.df.columns or self.df[col].isna().all():
+                raise ValueError(f"Missing or invalid data for column: {col}")
+        
+        # Filter to date range
         self.df = self.df[(self.df.index >= self.start_date) & (self.df.index <= self.end_date)]
         if len(self.df) == 0:
             raise ValueError("No data within date range")
+        
         # Generate signals for each bar
         self.signals = []
+        logger = logging.getLogger(__name__)
         for i in range(20, len(self.df)):
             data_slice = self.df.iloc[:i+1]
-            signal = self.signal_generator.generate_signal(self.symbol, data_slice)
-            if asyncio.iscoroutine(signal):
-                signal = asyncio.run(signal)
-            self.signals.append((self.df.index[i], signal))
+            # Skip slices that are too small or have all NaN
+            if len(data_slice) < 20 or data_slice['Close'].isna().all():
+                continue
+            try:
+                signal = self.signal_generator.generate_signal(self.symbol, data_slice)
+                if asyncio.iscoroutine(signal):
+                    signal = asyncio.run(signal)
+                self.signals.append((self.df.index[i], signal))
+            except Exception as e:
+                # Skip signals that fail - log if needed
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Signal generation failed for {self.symbol} at {self.df.index[i]}: {e}")
+                continue
 
     def run(self):
         self.load_data()

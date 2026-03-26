@@ -14,21 +14,15 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Any
 
 from app.core.config import settings
+from app.utils.redis import get_redis
 
 logger = logging.getLogger(__name__)
 
 class RedisCache:
     """Redis cache untuk data collection dengan TTL"""
     def __init__(self, host='localhost', port=6379, db=0):
-        self.redis_client = redis.Redis(
-            host=host,
-            port=port,
-            db=db,
-            decode_responses=True,
-            socket_connect_timeout=1,
-            socket_timeout=1
-        )
-    
+        self.redis_client = get_redis()
+
     def get(self, key):
         try:
             data = self.redis_client.get(key)
@@ -39,9 +33,33 @@ class RedisCache:
     
     def set(self, key, value, ttl=300):
         try:
-            self.redis_client.setex(key, ttl, json.dumps(value))
+            # Convert value to JSON-serializable format first
+            serializable_value = self._make_serializable(value)
+            self.redis_client.setex(key, ttl, json.dumps(serializable_value))
         except Exception as e:
             logger.warning(f"Redis set failed: {e}")
+    
+    def _make_serializable(self, obj):
+        """Make any object JSON serializable"""
+        import datetime as dt
+        if isinstance(obj, pd.DataFrame):
+            # Reset index and convert to records
+            df = obj.reset_index()
+            return self._make_serializable(df.to_dict('records'))
+        elif isinstance(obj, (list, tuple)):
+            return [self._make_serializable(i) for i in obj]
+        elif isinstance(obj, dict):
+            return {k: self._make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        elif pd.isna(obj):
+            return None
+        elif isinstance(obj, (dt.datetime, dt.date)):
+            return obj.isoformat() if hasattr(obj, 'isoformat') else str(obj)
+        elif obj is None or isinstance(obj, (str, int, float, bool)):
+            return obj
+        else:
+            return str(obj)
     
     def generate_key(self, *args, **kwargs):
         key_str = json.dumps({'args': args, 'kwargs': kwargs}, sort_keys=True)
@@ -154,6 +172,11 @@ class DataSourceManager:
                         end_date=end_date
                     )
                     if df is not None and not df.empty:
+                        # Ensure no Timestamp objects in the DataFrame
+                        if 'Date' in df.columns:
+                            df['Date'] = df['Date'].astype(str)
+                        elif 'Datetime' in df.columns:
+                            df['Datetime'] = df['Datetime'].astype(str)
                         # Cache hasil
                         if cache_key:
                             try:

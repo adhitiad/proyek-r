@@ -36,11 +36,15 @@ class CrossAssetCorrelation:
                     interval=settings.DATA_INTERVAL,
                     progress=False
                 )
-                if not df.empty:
+                # Handle None result from yfinance
+                if df is not None and not df.empty:
                     data[symbol] = df['Close']
             except Exception as e:
-                logger.error(f"Failed to fetch {symbol}: {e}")
+                logger.warning(f"Failed to fetch {symbol}: {e}")
         
+        # Return empty DataFrame if no data, not dict with scalar values
+        if not data:
+            return pd.DataFrame()
         return pd.DataFrame(data)
     
     async def calculate_correlations(self) -> Dict:
@@ -141,8 +145,11 @@ class GlobalMacroIntegration:
         try:
             ticker = yf.Ticker(symbol)
             df = ticker.history(period="5d")
-            return df['Close'].iloc[-1] if not df.empty else None
-        except:
+            if df is not None and not df.empty:
+                return float(df['Close'].iloc[-1])
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to fetch commodity {symbol}: {e}")
             return None
     
     async def _fetch_vix(self) -> float:
@@ -150,8 +157,11 @@ class GlobalMacroIntegration:
         try:
             ticker = yf.Ticker('^VIX')
             df = ticker.history(period="5d")
-            return df['Close'].iloc[-1] if not df.empty else None
-        except:
+            if df is not None and not df.empty:
+                return float(df['Close'].iloc[-1])
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to fetch VIX: {e}")
             return None
     
     async def analyze_macro_impact(self, symbol: str, df: pd.DataFrame) -> Dict:

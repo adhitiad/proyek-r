@@ -5,6 +5,7 @@ from app.core.database import db
 from app.core.security import require_api_key
 import asyncio
 import datetime
+import pandas as pd
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
@@ -18,6 +19,22 @@ async def run_backtest(
     commission: float = 0.001,
     slippage: float = 0.0005,
 ):
+    # Validasi format tanggal
+    try:
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    
+    # Validasi tanggal tidak valid seperti 2026-02-31
+    if start_date != str(start.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid start_date: {start_date}")
+    if end_date != str(end.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid end_date: {end_date}")
+    
+    if start >= end:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    
     try:
         bt = Backtester(symbol, start_date, end_date, initial_capital, risk_per_trade, commission, slippage)
         result = await asyncio.to_thread(bt.run)
@@ -25,8 +42,11 @@ async def run_backtest(
         result['timestamp'] = datetime.datetime.now()
         db.backtest_results.insert_one(result)
         return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}\n{traceback.format_exc()}")
 
 @router.post("/screen", dependencies=[Depends(require_api_key)])
 async def screen(
@@ -38,6 +58,22 @@ async def screen(
     commission: float = 0.001,
     slippage: float = 0.0005
 ):
+    # Validasi format tanggal
+    try:
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    
+    # Validasi tanggal tidak valid seperti 2026-02-31
+    if start_date != str(start.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid start_date: {start_date}")
+    if end_date != str(end.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid end_date: {end_date}")
+    
+    if start >= end:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    
     try:
         screener = Screener(symbols, start_date, end_date,
                             initial_capital=initial_capital,
@@ -46,6 +82,8 @@ async def screen(
                             slippage=slippage)
         results = await asyncio.to_thread(screener.run)
         return results
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
@@ -59,6 +97,22 @@ async def get_backtest_metrics(
     """
     Mendapatkan metrik detail untuk suatu saham tanpa perlu menjalankan optimasi.
     """
+    # Validasi format tanggal
+    try:
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    
+    # Validasi tanggal tidak valid seperti 2026-02-31
+    if start_date != str(start.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid start_date: {start_date}")
+    if end_date != str(end.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid end_date: {end_date}")
+    
+    if start >= end:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    
     try:
         bt = Backtester(symbol, start_date, end_date, initial_capital)
         result = await asyncio.to_thread(bt.run)
@@ -91,6 +145,8 @@ async def get_backtest_metrics(
                 'recovery_factor': f"{result['recovery_factor']:.2f}"
             }
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -105,6 +161,22 @@ async def get_trades_history(
     """
     Mendapatkan history trades untuk analisis lebih detail.
     """
+    # Validasi format tanggal
+    try:
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    
+    # Validasi tanggal tidak valid seperti 2026-02-31
+    if start_date != str(start.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid start_date: {start_date}")
+    if end_date != str(end.date()):
+        raise HTTPException(status_code=400, detail=f"Invalid end_date: {end_date}")
+    
+    if start >= end:
+        raise HTTPException(status_code=400, detail="start_date must be before end_date")
+    
     try:
         bt = Backtester(symbol, start_date, end_date, initial_capital)
         result = await asyncio.to_thread(bt.run)
@@ -114,5 +186,7 @@ async def get_trades_history(
             'total_trades': len(result['trades']),
             'trades': trades
         }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

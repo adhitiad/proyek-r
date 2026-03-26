@@ -63,10 +63,25 @@ class SignalGeneratorV5:
     
     async def _analyze_technical(self, df: pd.DataFrame) -> Dict:
         """Comprehensive technical analysis"""
-        regime = self.technical.detect_market_regime(df)
-        trend = self.technical.detect_trend(df)
-        sr_levels = self.technical.find_support_resistance(df)
-        volume_profile = self.technical.volume_profile(df)
+        try:
+            regime = self.technical.detect_market_regime(df)
+        except Exception as e:
+            regime = None
+        
+        try:
+            trend = self.technical.detect_trend(df)
+        except Exception as e:
+            trend = 'neutral'
+        
+        try:
+            sr_levels = self.technical.find_support_resistance(df)
+        except Exception as e:
+            sr_levels = {'nearest_support': None, 'nearest_resistance': None}
+        
+        try:
+            volume_profile = self.technical.volume_profile(df)
+        except Exception as e:
+            volume_profile = {'poc': {'price_low': 0, 'price_high': 0}, 'profile': []}
         
         # Score calculation
         bullish_score = 0
@@ -79,17 +94,21 @@ class SignalGeneratorV5:
             bearish_score += 2
         
         # Support/Resistance
-        if sr_levels['nearest_support'] and df['Close'].iloc[-1] < sr_levels['nearest_support'] * 1.02:
-            bullish_score += 1
-        if sr_levels['nearest_resistance'] and df['Close'].iloc[-1] > sr_levels['nearest_resistance'] * 0.98:
-            bearish_score += 1
-        
-        # Volume Profile
-        current_price = df['Close'].iloc[-1]
-        if current_price < volume_profile['poc']['price_low']:
-            bullish_score += 1
-        elif current_price > volume_profile['poc']['price_high']:
-            bearish_score += 1
+        try:
+            current_price = df['Close'].iloc[-1]
+            if sr_levels.get('nearest_support') and current_price < sr_levels['nearest_support'] * 1.02:
+                bullish_score += 1
+            if sr_levels.get('nearest_resistance') and current_price > sr_levels['nearest_resistance'] * 0.98:
+                bearish_score += 1
+            
+            # Volume Profile
+            poc = volume_profile.get('poc', {})
+            if poc and current_price < poc.get('price_low', 0):
+                bullish_score += 1
+            elif poc and current_price > poc.get('price_high', 0):
+                bearish_score += 1
+        except Exception:
+            pass  # Skip if current_price access fails
         
         return {
             'regime': regime,
@@ -99,43 +118,70 @@ class SignalGeneratorV5:
             'bullish_score': bullish_score,
             'bearish_score': bearish_score,
             'signal': 'bullish' if bullish_score > bearish_score else 'bearish' if bearish_score > bullish_score else 'neutral',
-            'strength': max(bullish_score, bearish_score) / 5
+            'strength': max(bullish_score, bearish_score) / 5 if max(bullish_score, bearish_score) > 0 else 0.1
         }
     
     async def _analyze_sentiment(self, symbol: str) -> Dict:
         """Comprehensive sentiment analysis"""
-        sentiment_data = await self.sentiment.analyze_symbol(symbol)
-        
-        return {
-            'score': sentiment_data['avg_score'],
-            'confidence': sentiment_data['confidence'],
-            'sentiment': sentiment_data['sentiment'],
-            'news_count': sentiment_data['news_count'],
-            'details': sentiment_data.get('details', [])
-        }
+        try:
+            sentiment_data = await self.sentiment.analyze_symbol(symbol)
+            return {
+                'score': sentiment_data.get('avg_score', 0),
+                'confidence': sentiment_data.get('confidence', 0),
+                'sentiment': sentiment_data.get('sentiment', 'neutral'),
+                'news_count': sentiment_data.get('news_count', 0),
+                'details': sentiment_data.get('details', [])
+            }
+        except Exception as e:
+            return {
+                'score': 0,
+                'confidence': 0,
+                'sentiment': 'neutral',
+                'news_count': 0,
+                'details': []
+            }
     
     async def _analyze_institutional(self, symbol: str, df: pd.DataFrame) -> Dict:
         """Comprehensive institutional analysis"""
-        bandar_data = await self.bandar.analyze(symbol, df)
-        
-        return {
-            'verdict': bandar_data['verdict'],
-            'strength': bandar_data['strength'],
-            'accumulation': bandar_data['accumulation']['is_accumulating'],
-            'distribution': bandar_data['distribution']['is_distributing'],
-            'flow': bandar_data['institutional_flow']
-        }
+        try:
+            bander_data = await self.bandar.analyze(symbol, df)
+            return {
+                'verdict': bander_data.get('verdict', 'unknown'),
+                'strength': bander_data.get('strength', 0),
+                'accumulation': bander_data.get('accumulation', {}).get('is_accumulating', False),
+                'distribution': bander_data.get('distribution', {}).get('is_distributing', False),
+                'flow': bander_data.get('institutional_flow', 'unknown')
+            }
+        except Exception as e:
+            return {
+                'verdict': 'unknown',
+                'strength': 0,
+                'accumulation': False,
+                'distribution': False,
+                'flow': 'unknown'
+            }
     
     def _calculate_entry_exit(self, df: pd.DataFrame, technical: Dict, sentiment: Dict, 
                               institutional: Dict, action: str) -> Tuple[float, float, float]:
         """Calculate entry, stop loss, and take profit levels"""
-        current_price = df['Close'].iloc[-1]
-        atr = self.technical.atr(df).iloc[-1]
+        try:
+            current_price = float(df['Close'].iloc[-1])
+        except Exception:
+            current_price = 0
+        
+        try:
+            atr_series = self.technical.atr(df)
+            atr = float(atr_series.iloc[-1]) if not pd.isna(atr_series.iloc[-1]) else current_price * 0.02
+        except Exception:
+            atr = current_price * 0.02
         
         if action == 'buy':
             # Entry: nearest support or FVG
-            entry = technical['support_resistance']['nearest_support'] or current_price
-            entry = min(entry, current_price * 1.01)  # Don't chase too high
+            sr = technical.get('support_resistance', {})
+            entry = sr.get('nearest_support') or current_price
+            if entry is None:
+                entry = current_price
+            entry = min(float(entry), current_price * 1.01)  # Don't chase too high
             
             # Stop Loss: 1.5x ATR below entry
             stop_loss = entry - (atr * 1.5)
@@ -146,8 +192,11 @@ class SignalGeneratorV5:
             
         elif action == 'sell':
             # Entry: nearest resistance
-            entry = technical['support_resistance']['nearest_resistance'] or current_price
-            entry = max(entry, current_price * 0.99)  # Don't short too low
+            sr = technical.get('support_resistance', {})
+            entry = sr.get('nearest_resistance') or current_price
+            if entry is None:
+                entry = current_price
+            entry = max(float(entry), current_price * 0.99)  # Don't short too low
             
             # Stop Loss: 1.5x ATR above entry
             stop_loss = entry + (atr * 1.5)
@@ -169,30 +218,50 @@ class SignalGeneratorV5:
         sentiment_task = self._analyze_sentiment(symbol)
         institutional_task = self._analyze_institutional(symbol, df)
         
-        technical, sentiment, institutional = await asyncio.gather(
-            technical_task, sentiment_task, institutional_task
-        )
+        try:
+            technical, sentiment, institutional = await asyncio.gather(
+                technical_task, sentiment_task, institutional_task
+            )
+        except Exception as e:
+            # Return neutral signal on error
+            return Signal(
+                symbol=symbol,
+                action='hold',
+                bias='neutral',
+                entry_price=0,
+                stop_loss=0,
+                take_profit=0,
+                confidence=0,
+                risk_reward=0,
+                time_horizon='swing',
+                reasoning={'error': str(e)},
+                timestamp=pd.Timestamp.now().isoformat()
+            )
         
         # Adjust weights based on market regime
-        weights = self._adjust_weights(technical['regime'])
+        regime = technical.get('regime')
+        if regime is not None:
+            weights = self._adjust_weights(regime)
+        else:
+            weights = self._adjust_weights(MarketRegime(type='ranging', strength=0.5, direction='neutral'))
         
         # Calculate combined score
         # Technical score
         tech_score = 1 if technical['signal'] == 'bullish' else -1 if technical['signal'] == 'bearish' else 0
-        tech_score *= technical['strength']
+        tech_score *= technical.get('strength', 0.1)
         
         # Sentiment score
-        sent_score = sentiment['score']
+        sent_score = sentiment.get('score', 0)
         
         # Institutional score
-        inst_score = 1 if institutional['verdict'] == 'accumulating' else -1 if institutional['verdict'] == 'distributing' else 0
-        inst_score *= institutional['strength']
+        inst_score = 1 if institutional.get('verdict') == 'accumulating' else -1 if institutional.get('verdict') == 'distributing' else 0
+        inst_score *= institutional.get('strength', 0.1)
         
         # Weighted final score
         final_score = (
-            tech_score * weights['technical'] +
-            sent_score * weights['sentiment'] +
-            inst_score * weights['institutional']
+            tech_score * weights.get('technical', 0.4) +
+            sent_score * weights.get('sentiment', 0.3) +
+            inst_score * weights.get('institutional', 0.3)
         )
         
         # Determine action
@@ -227,9 +296,9 @@ class SignalGeneratorV5:
         risk_reward = reward / risk if risk > 0 else 0
         
         # Determine time horizon
-        if technical['regime'].type == 'trending' and technical['regime'].strength > 0.7:
+        if regime is not None and regime.type == 'trending' and regime.strength > 0.7:
             time_horizon = 'position'  # weeks to months
-        elif technical['regime'].type == 'volatile':
+        elif regime is not None and regime.type == 'volatile':
             time_horizon = 'intraday'  # hours to days
         else:
             time_horizon = 'swing'  # days to weeks
@@ -246,19 +315,19 @@ class SignalGeneratorV5:
             time_horizon=time_horizon,
             reasoning={
                 'technical': {
-                    'regime': technical['regime'].type,
-                    'trend': technical['trend'],
-                    'strength': technical['strength']
+                    'regime': regime.type if regime else 'unknown',
+                    'trend': technical.get('trend', 'neutral'),
+                    'strength': technical.get('strength', 0)
                 },
                 'sentiment': {
-                    'score': sentiment['score'],
-                    'confidence': sentiment['confidence'],
-                    'news_count': sentiment['news_count']
+                    'score': sentiment.get('score', 0),
+                    'confidence': sentiment.get('confidence', 0),
+                    'news_count': sentiment.get('news_count', 0)
                 },
                 'institutional': {
-                    'verdict': institutional['verdict'],
-                    'strength': institutional['strength'],
-                    'flow': institutional['flow']
+                    'verdict': institutional.get('verdict', 'unknown'),
+                    'strength': institutional.get('strength', 0),
+                    'flow': institutional.get('flow', 'unknown')
                 },
                 'weights': weights,
                 'final_score': final_score

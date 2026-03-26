@@ -1,19 +1,51 @@
 import asyncio
 import aiohttp
 import json
+import json
 from groq import Groq
 import numpy as np
 from typing import List, Dict, Tuple
 from transformers import pipeline
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import torch
 import torch.nn as nn
+import pandas as pd
 
-import redis
+from app.core.config import settings
+
+
 import hashlib
 import logging
 
+from app.utils.redis import get_redis
+
 logger = logging.getLogger(__name__)
+
+
+def _json_serializable(obj):
+    """Convert object to JSON-serializable dict"""
+    import datetime as dt
+    if hasattr(obj, '__dict__'):
+        result = {}
+        for k, v in obj.__dict__.items():
+            if isinstance(v, pd.Timestamp):
+                result[k] = v.isoformat()
+            elif pd.isna(v):
+                result[k] = None
+            elif isinstance(v, (dt.datetime, dt.date)):
+                result[k] = v.isoformat() if hasattr(v, 'isoformat') else str(v)
+            elif isinstance(v, (list, tuple)):
+                result[k] = [_json_serializable(i) if hasattr(i, '__dict__') else (
+                    i.isoformat() if isinstance(i, (dt.datetime, dt.date)) else i
+                ) for i in v]
+            elif hasattr(v, '__dict__'):
+                result[k] = _json_serializable(v)
+            elif v is None or isinstance(v, (str, int, float, bool)):
+                result[k] = v
+            else:
+                result[k] = str(v)
+        return result
+    return obj
 
 @dataclass
 class SentimentResult:
@@ -28,26 +60,29 @@ class SentimentResult:
 class EnsembleSentimentModel:
     """Ensemble of multiple sentiment models"""
     
-    def __init__(self):
+    def __init__(self, hf_token: str = settings.HF_TOKEN):
         # Model khusus Indonesia
         self.indonesian_model = pipeline(
             "sentiment-analysis",
             model="w11wo/indonesian-roberta-base-sentiment-classifier",
-            tokenizer="w11wo/indonesian-roberta-base-sentiment-classifier"
+            tokenizer="w11wo/indonesian-roberta-base-sentiment-classifier",
+            use_auth_token=hf_token
         )
         
         # Multilingual model
         self.multilingual_model = pipeline(
             "sentiment-analysis",
             model="nlptown/bert-base-multilingual-uncased-sentiment",
-            tokenizer="nlptown/bert-base-multilingual-uncased-sentiment"
+            tokenizer="nlptown/bert-base-multilingual-uncased-sentiment",
+            use_auth_token=hf_token
         )
         
         # FinBERT untuk financial sentiment
         self.financial_model = pipeline(
             "sentiment-analysis",
             model="ProsusAI/finbert",
-            tokenizer="ProsusAI/finbert"
+            tokenizer="ProsusAI/finbert",
+            use_auth_token=hf_token
         )
         
         self.weights = {
@@ -168,17 +203,15 @@ Berita: """
 class SentimentAnalyzerV5:
     """Level 5 Sentiment Analysis dengan multi-source dan ensemble"""
     
-    def __init__(self, groq_api_key: str = None, news_scraper=None):
-        self.ensemble = EnsembleSentimentModel()
+    def __init__(self, groq_api_key: str = None, news_scraper=None, hf_token: str = None):
+        self.ensemble = EnsembleSentimentModel(hf_token)
         self.groq = GroqLLMAnalyzer(groq_api_key) if groq_api_key else None
-        self.cache = redis.Redis(
-            host='localhost',
-            port=6379,
-            db=1,
-            decode_responses=True,
-            socket_connect_timeout=1,
-            socket_timeout=1
-        )
+        # Handle Redis connection failure gracefully
+        try:
+            self.cache = get_redis()
+        except Exception as e:
+            logger.warning(f"Redis connection failed: {e}")
+            self.cache = None
         self.news_scraper = news_scraper
         
     def _get_cache_key(self, symbol: str) -> str:
@@ -196,12 +229,14 @@ class SentimentAnalyzerV5:
         """Single news analysis with caching"""
         cache_key = hashlib.md5(text.encode()).hexdigest()
         try:
-            cached = self.cache.get(cache_key)
+            if self.cache:
+                cached = self.cache.get(cache_key)
+            else:
+                cached = None
         except Exception as e:
             logger.warning(f"Sentiment cache read failed: {e}")
             cached = None
         if cached:
-            import json
             return SentimentResult(**json.loads(cached))
         
         # Ensemble model analysis
@@ -234,9 +269,9 @@ class SentimentAnalyzerV5:
         )
         
         # Cache result (TTL 1 hour)
-        import json
         try:
-            self.cache.setex(cache_key, 3600, json.dumps(result.__dict__))
+            if self.cache:
+                self.cache.setex(cache_key, 3600, json.dumps(_json_serializable(result)))
         except Exception as e:
             logger.warning(f"Sentiment cache write failed: {e}")
         
@@ -247,12 +282,14 @@ class SentimentAnalyzerV5:
         # Check cache
         cache_key = self._get_cache_key(symbol)
         try:
-            cached = self.cache.get(cache_key)
+            if self.cache:
+                cached = self.cache.get(cache_key)
+            else:
+                cached = None
         except Exception as e:
             logger.warning(f"Sentiment cache read failed: {e}")
             cached = None
         if cached:
-            import json
             return json.loads(cached)
         
         # Get news from scraper
@@ -272,7 +309,11 @@ class SentimentAnalyzerV5:
             }
         
         # Analyze all news
-        results = await self.analyze_news_batch(news_items)
+        try:
+            results = await self.analyze_news_batch(news_items)
+        except Exception as e:
+            logger.warning(f"News batch analysis failed: {e}")
+            results = []
         
         # Weighted average based on impact and recency
         total_weight = 0
@@ -286,10 +327,21 @@ class SentimentAnalyzerV5:
         
         avg_score = weighted_score / total_weight if total_weight > 0 else 0
         
+        # Handle empty results
+        if not results:
+            return {
+                'symbol': symbol,
+                'avg_score': 0,
+                'confidence': 0,
+                'sentiment': 'neutral',
+                'news_count': 0,
+                'details': []
+            }
+        
         final_result = {
             'symbol': symbol,
             'avg_score': avg_score,
-            'confidence': sum(r.confidence for r in results) / len(results),
+            'confidence': sum(r.confidence for r in results) / len(results) if results else 0,
             'sentiment': 'positive' if avg_score > 0.2 else 'negative' if avg_score < -0.2 else 'neutral',
             'news_count': len(news_items),
             'details': [
@@ -305,9 +357,9 @@ class SentimentAnalyzerV5:
         }
         
         # Cache results (TTL 5 minutes)
-        import json
         try:
-            self.cache.setex(cache_key, 300, json.dumps(final_result))
+            if self.cache:
+                self.cache.setex(cache_key, 300, json.dumps(_json_serializable(final_result)))
         except Exception as e:
             logger.warning(f"Sentiment cache write failed: {e}")
         

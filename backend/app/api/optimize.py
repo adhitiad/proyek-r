@@ -20,16 +20,22 @@ async def start_optimization(
     symbol: str,
     start_date: str,
     end_date: str,
-    param_grid: dict,
+    param_grid: str,  # JSON string dari query params
     metric: str = "sharpe_ratio",
     initial_capital: float = 100000000,
     commission: float = 0.001,
     slippage: float = 0.0005
 ):
+    import json
+    try:
+        param_grid_dict = json.loads(param_grid)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid param_grid format")
+    
     opt_id = str(uuid.uuid4())
     background_tasks.add_task(
         run_optimization_task,
-        opt_id, symbol, start_date, end_date, param_grid, metric,
+        opt_id, symbol, start_date, end_date, param_grid_dict, metric,
         initial_capital, commission, slippage
     )
     return {"optimization_id": opt_id, "status": "started"}
