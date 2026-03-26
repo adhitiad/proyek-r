@@ -1,12 +1,14 @@
 import asyncio
 import aiohttp
 import json
+from groq import Groq
 import numpy as np
 from typing import List, Dict, Tuple
 from transformers import pipeline
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
+
 import redis
 import hashlib
 import logging
@@ -116,48 +118,48 @@ class GroqLLMAnalyzer:
     
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.api_url = "https://api.groq.com/openai/v1/chat/completions"
         
     async def analyze(self, text: str) -> Dict:
         """Analyze text with Groq LLM"""
-        prompt = f"""
-        Analisis sentimen berita berikut untuk pasar saham Indonesia.
-        Berikan analisis mendalam dengan format JSON:
-        {{
-            "sentiment": "positive/negative/neutral",
-            "confidence": 0-1,
-            "impact_score": 0-1,
-            "key_points": [],
-            "market_impact": "high/medium/low",
-            "suggested_action": "buy/hold/sell"
-        }}
+        import re
         
-        Berita: "{text}"
-        """
-        
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": "llama3-70b-8192",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 500
-        }
-        
+        # Initialize client in __init__ instead of per-call
+        if not hasattr(self, '_client'):
+            self._client = Groq(api_key=self.api_key)
+
+        system_prompt = """Analisis sentimen berita berikut untuk pasar saham Indonesia.
+Berikan analisis mendalam dengan format JSON:
+{
+    "sentiment": "positive/negative/neutral",
+    "confidence": 0-1,
+    "impact_score": 0-1,
+    "key_points": [],
+    "market_impact": "high/medium/low",
+    "suggested_action": "buy/hold/sell"
+}
+
+Berita: """
+
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.api_url, json=payload, headers=headers, timeout=15) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        content = result['choices'][0]['message']['content']
-                        # Extract JSON
-                        import re
-                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                        if json_match:
-                            return json.loads(json_match.group())
+            # Use asyncio.to_thread to avoid blocking the event loop
+            completion = await asyncio.to_thread(
+                self._client.chat.completions.create,
+                model="llama-3.1-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.3,
+                max_tokens=500
+            )
+
+            groq_jawab = completion.choices[0].message.content
+            
+            # Extract JSON from response
+            json_match = re.search(r'\{.*\}', groq_jawab, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group())
+            
             return {'sentiment': 'neutral', 'confidence': 0.5, 'impact_score': 0.5}
         except Exception as e:
             logger.error(f"Groq analysis error: {e}")

@@ -121,6 +121,9 @@ def retrain_model():
 
 def start_scheduler():
     """Start all scheduled jobs."""
+    if settings.DISABLE_SCHEDULER:
+        logger.info("Scheduler disabled via DISABLE_SCHEDULER")
+        return
     # Scanning setiap 60 menit
     scheduler.add_job(
         scan_and_update_signals,

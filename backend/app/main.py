@@ -1,4 +1,6 @@
 from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+import os
 
 
 from app.api import telegram
@@ -9,6 +11,7 @@ from app.api import optimize
 from app.api import websocket
 from app.api import model
 from app.api import v6
+from app.api import auth
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from app.core.singletons import get_data_manager, shutdown_singletons
 
@@ -20,6 +23,20 @@ backtest_duration = Histogram('backtest_duration_seconds', 'Backtest duration')
 
 app = FastAPI(title="Forex & IDX Signal Generator")
 
+origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Include routers
 app.include_router(optimize.router)
 app.include_router(signals.router)
@@ -30,6 +47,7 @@ app.include_router(model.router)
 app.include_router(v6.router)
 app.include_router(telegram.router)
 app.include_router(websocket.router)
+app.include_router(auth.router)
 
 
 @app.get("/metrics")

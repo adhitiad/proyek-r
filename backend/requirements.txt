@@ -12,6 +12,11 @@ requests
 python-dotenv
 pandas_ta
 groq               # Jika menggunakan Groq API
+selenium
+jsonschema
+langchain
+langgraph
+langchain_groq
 apscheduler
 websockets
 python-telegram-bot
@@ -23,3 +28,4 @@ aiohttp
 backoff
 prometheus_client
 pytest
+pyjwt

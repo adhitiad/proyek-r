@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NewsAgentOutput",
+  "type": "object",
+  "required": [
+    "query",
+    "avg_score",
+    "confidence",
+    "sentiment",
+    "news_count",
+    "details",
+    "generated_at",
+    "model"
+  ],
+  "properties": {
+    "symbol": {
+      "type": ["string", "null"]
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1
+    },
+    "avg_score": {
+      "type": "number"
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "sentiment": {
+      "type": "string",
+      "enum": ["positive", "negative", "neutral"]
+    },
+    "news_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "details": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "url", "source", "analysis"],
+        "properties": {
+          "title": {"type": "string"},
+          "url": {"type": "string"},
+          "date": {"type": "string"},
+          "snippet": {"type": "string"},
+          "source": {"type": "string"},
+          "full_text": {"type": "string"},
+          "analysis": {
+            "type": "object",
+            "required": ["sentiment", "confidence", "impact_score"],
+            "properties": {
+              "sentiment": {
+                "type": "string",
+                "enum": ["positive", "negative", "neutral"]
+              },
+              "confidence": {"type": "number"},
+              "impact_score": {"type": "number"},
+              "key_points": {"type": "array", "items": {"type": "string"}},
+              "summary": {"type": "string"},
+              "suggested_action": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "model": {
+      "type": "string"
+    }
+  }
+}

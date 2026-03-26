@@ -8,6 +8,8 @@ import logging
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -44,6 +46,8 @@ class BandarDetectorV5:
     
     async def fetch_rti_flow(self, symbol: str) -> Optional[Dict]:
         """Fetch foreign flow from RTI Business"""
+        if settings.BANDAR_DISABLE_RTI:
+            return None
         try:
             async with aiohttp.ClientSession() as session:
                 url = self.sources['rti']['url'].format(symbol=symbol.replace('.JK', ''))

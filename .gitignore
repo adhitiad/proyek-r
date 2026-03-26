@@ -18,9 +18,16 @@ env/
 
 # Environment variables
 .env
+.env.*
+backend/.env
+backend/.env.*
+agents/.env
+!.env.example
+!backend/.env.example
 
 # Editor / IDE
 .vscode/
+.idea/
 
 # Build artifacts
 build/
@@ -30,3 +37,7 @@ dist/
 # Logs
 *.log
 firebase-debug.log
+
+# OS files
+.DS_Store
+Thumbs.db

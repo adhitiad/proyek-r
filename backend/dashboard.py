@@ -34,6 +34,8 @@ db = client[os.getenv("DATABASE_NAME", "forex_idx_signals")]
 
 # API Base URL (FastAPI)
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_KEY = os.getenv("API_KEY", "")
+API_HEADERS = {"X-API-Key": API_KEY} if API_KEY else {}
 
 # Title
 st.title("📊 Forex & IDX Trading Signal Dashboard")
@@ -424,7 +426,11 @@ elif page == "🤖 Model Management":
                 else:
                     if st.button("Activate", key=model['model_path']):
                         # API call to activate model
-                        response = requests.post(f"{API_URL}/model/activate", params={"model_path": model['model_path']})
+                        response = requests.post(
+                            f"{API_URL}/model/activate",
+                            params={"model_path": model['model_path']},
+                            headers=API_HEADERS,
+                        )
                         if response.status_code == 200:
                             st.success(f"Model {model['model_path']} activated!")
                             st.rerun()
@@ -454,8 +460,9 @@ elif page == "🤖 Model Management":
                         "symbols": symbols_list,
                         "start_date": start_date.isoformat(),
                         "end_date": end_date.isoformat(),
-                        "epochs": epochs
-                    }
+                        "epochs": epochs,
+                    },
+                    headers=API_HEADERS,
                 )
                 if response.status_code == 200:
                     st.success("Model training completed!")
@@ -498,8 +505,9 @@ elif page == "⚙️ Optimization":
                         "start_date": start_date.isoformat(),
                         "end_date": end_date.isoformat(),
                         "param_grid": param_grid,
-                        "metric": metric
-                    }
+                        "metric": metric,
+                    },
+                    headers=API_HEADERS,
                 )
                 if response.status_code == 200:
                     st.success(f"Optimization started! ID: {response.json()['optimization_id']}")
@@ -599,7 +607,10 @@ elif page == "📰 News Sentiment":
     
     if st.button("Analyze Sentiment"):
         with st.spinner("Analyzing news sentiment..."):
-            response = requests.get(f"{API_URL}/sentiment/{symbol}")
+            response = requests.get(
+                f"{API_URL}/sentiment/{symbol}",
+                headers=API_HEADERS,
+            )
             if response.status_code == 200:
                 data = response.json()
                 
